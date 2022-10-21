@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:bloc_testing/apis/login_api.dart';
 import 'package:bloc_testing/apis/notes_api.dart';
+import 'package:bloc_testing/bloc/actions.dart';
 import 'package:bloc_testing/bloc/app_bloc.dart';
 import 'package:bloc_testing/bloc/app_state.dart';
 import 'package:bloc_testing/models.dart';
@@ -43,10 +44,12 @@ class DummyNotesApi implements NotesApiProtocol {
 class DummyLoginApi implements LoginApiProtocol {
   final String acceptedEmail;
   final String acceptedPassword;
+  final LoginHandle loginHandle;
 
   const DummyLoginApi({
     required this.acceptedEmail,
     required this.acceptedPassword,
+    required this.loginHandle,
   });
 
   @override
@@ -55,7 +58,7 @@ class DummyLoginApi implements LoginApiProtocol {
     required String password,
   }) async {
     if (email == acceptedEmail && password == acceptedPassword) {
-      return const LoginHandle.fooBar();
+      return loginHandle;
     } else {
       return null;
     }
@@ -63,8 +66,11 @@ class DummyLoginApi implements LoginApiProtocol {
 
   const DummyLoginApi.empty()
       : acceptedEmail = '',
-        acceptedPassword = '';
+        acceptedPassword = '',
+        loginHandle = const LoginHandle.fooBar();
 }
+
+const acceptedLoginHandle = LoginHandle(token: 'ABC');
 
 void main() {
   blocTest<AppBloc, AppState>(
@@ -72,10 +78,128 @@ void main() {
     build: () => AppBloc(
       loginApi: const DummyLoginApi.empty(),
       notesApi: const DummyNotesApi.empty(),
+      acceptedLoginHandle: acceptedLoginHandle,
     ),
     verify: (appState) => expect(
       appState.state,
       const AppState.empty(),
     ),
+  );
+  blocTest<AppBloc, AppState>(
+    'Can we log in with correct credentials?',
+    build: () => AppBloc(
+      loginApi: const DummyLoginApi(
+        acceptedEmail: 'bar@bz.com',
+        acceptedPassword: 'foobar',
+        loginHandle: acceptedLoginHandle,
+      ),
+      notesApi: const DummyNotesApi.empty(),
+      acceptedLoginHandle: acceptedLoginHandle,
+    ),
+    act: (appBloc) => appBloc.add(
+      const LoginAction(
+        email: 'bar@bz.com',
+        password: 'foobar',
+      ),
+    ),
+    expect: () => [
+      const AppState(
+        isLoading: true,
+        loginErrors: null,
+        loginHandle: null,
+        fetchedNotes: null,
+      ),
+      const AppState(
+        isLoading: false,
+        loginErrors: null,
+        loginHandle: acceptedLoginHandle,
+        fetchedNotes: null,
+      ),
+    ],
+  );
+  blocTest<AppBloc, AppState>(
+    'We should not log in with wrong credentials?',
+    build: () => AppBloc(
+      loginApi: const DummyLoginApi(
+        acceptedEmail: 'bar@bz.com',
+        acceptedPassword: 'bar',
+        loginHandle: acceptedLoginHandle,
+      ),
+      notesApi: const DummyNotesApi.empty(),
+      acceptedLoginHandle: acceptedLoginHandle,
+    ),
+    act: (appBloc) => appBloc.add(
+      const LoginAction(
+        email: 'bar@bz.com',
+        password: 'foo',
+      ),
+    ),
+    expect: () => [
+      const AppState(
+        isLoading: true,
+        loginErrors: null,
+        loginHandle: null,
+        fetchedNotes: null,
+      ),
+      const AppState(
+        isLoading: false,
+        loginErrors: LoginErrors.invalidHandle,
+        loginHandle: null,
+        fetchedNotes: null,
+      ),
+    ],
+  );
+  blocTest<AppBloc, AppState>(
+    'Load some notes with valid user',
+    build: () => AppBloc(
+      loginApi: const DummyLoginApi(
+        acceptedEmail: 'bar@bz.com',
+        acceptedPassword: 'foobar',
+        loginHandle: acceptedLoginHandle,
+      ),
+      notesApi: const DummyNotesApi(
+        acceptedLoginHandle: LoginHandle(
+          token: 'ABC',
+        ),
+        notesToReturnForAcceptedLoginHandle: mockNotes,
+      ), acceptedLoginHandle: acceptedLoginHandle,
+    ),
+    act: (appBloc) {
+      appBloc.add(
+        const LoginAction(
+          email: 'bar@bz.com',
+          password: 'foobar',
+        ),
+      );
+      appBloc.add(
+        const LoadNotesAction(),
+      );
+    },
+    expect: () => [
+      const AppState(
+        isLoading: true,
+        loginErrors: null,
+        loginHandle: null,
+        fetchedNotes: null,
+      ),
+      const AppState(
+        isLoading: false,
+        loginErrors: null,
+        loginHandle: acceptedLoginHandle,
+        fetchedNotes: null,
+      ),
+      const AppState(
+        isLoading: true,
+        loginErrors: null,
+        loginHandle: acceptedLoginHandle,
+        fetchedNotes: null,
+      ),
+      const AppState(
+        isLoading: false,
+        loginErrors: null,
+        loginHandle: acceptedLoginHandle,
+        fetchedNotes: mockNotes,
+      ),
+    ],
   );
 }
